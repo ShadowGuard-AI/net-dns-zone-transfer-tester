@@ -80,6 +80,11 @@ def perform_zone_transfer(domain, nameserver, port=53, use_tcp=False):
 
             sock.sendall(message)
 
+            # I read until the server closes the connection. A real AXFR
+            # answer is a series of length prefixed messages, and I only
+            # strip the first two length bytes below, so the length bytes
+            # of every later message stay in the data and show up in the
+            # printed output as stray characters.
             # Receive data
             data = b''
             while True:
@@ -143,6 +148,10 @@ def perform_zone_transfer(domain, nameserver, port=53, use_tcp=False):
                 logging.warning("Response truncated (likely due to UDP).  AXFR typically requires TCP.")
             sock.close()
 
+            # Any UDP reply at all becomes a one item result here, error
+            # replies included. I never check the response code, so main
+            # can print a refused transfer as a successful one on this
+            # path. The TCP path is the one I trust for a verdict.
             records = [data.decode('latin-1', errors='ignore')] # Basic extraction of returned records
 
             return records
@@ -185,6 +194,9 @@ def validate_domain(domain):
     if ".." in domain:  # No consecutive dots
         return False
 
+    # A trailing dot makes the last label empty, so a fully qualified
+    # name written the DNS way, example.com. with the root dot, fails
+    # this check even though nameservers accept it.
     labels = domain.split(".")
     if not all(len(label) > 0 and len(label) <= 63 for label in labels):
         return False
@@ -206,6 +218,10 @@ def validate_nameserver(nameserver):
     Returns:
         bool: True if the nameserver is valid, False otherwise.
     """
+    # inet_aton accepts shorthand forms like 127.1 as valid addresses,
+    # and the fallback below does a real DNS resolution as part of
+    # validation, so checking the nameserver already costs a lookup
+    # before the transfer attempt makes its own connection.
     try:
         socket.inet_aton(nameserver)  # Check if it's a valid IP address
         return True
